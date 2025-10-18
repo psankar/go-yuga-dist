@@ -23,7 +23,7 @@ MIGRATION_IMAGE = 'go-yuga-dist-migration'
 # Build migration image using repo root as context so the Dockerfile can COPY the
 # top-level migrations/001_initial_schema.up.sql file. The Dockerfile itself
 # lives in migration/Dockerfile.
-docker_build(MIGRATION_IMAGE, 'migrations', dockerfile='Dockerfile')
+docker_build(MIGRATION_IMAGE, 'migrations', dockerfile='migrations/Dockerfile')
 
 # --- Kubernetes Resources ---
 
