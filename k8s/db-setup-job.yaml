@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: db-setup-script
+  namespace: go-yuga-dist
+data:
+  setup.sql: |
+    CREATE DATABASE go_yuga_dist;
+    CREATE USER go_yuga_dist_user WITH PASSWORD 'password';
+    ALTER DATABASE go_yuga_dist OWNER TO go_yuga_dist_user;
+    \c go_yuga_dist;
+    GRANT USAGE ON SCHEMA public TO go_yuga_dist_user;
+    GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO go_yuga_dist_user;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO go_yuga_dist_user;
+    CREATE TABLESPACE ind_ts WITH (replica_placement='[{"cloud":"local","region":"ind","zone":"a","min_num_replicas":1}]');
+    CREATE TABLESPACE usa_ts WITH (replica_placement='[{"cloud":"local","region":"usa","zone":"a","min_num_replicas":1}]');
+    CREATE TABLESPACE chn_ts WITH (replica_placement='[{"cloud":"local","region":"chn","zone":"a","min_num_replicas":1}]');
+    CREATE TABLESPACE deu_ts WITH (replica_placement='[{"cloud":"local","region":"deu","zone":"a","min_num_replicas":1}]');
+    CREATE TABLESPACE sgp_ts WITH (replica_placement='[{"cloud":"local","region":"sgp","zone":"a","min_num_replicas":1}]');
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-setup
+  namespace: go-yuga-dist
+spec:
+  template:
+    spec:
+      containers:
+      - name: db-setup
+        image: postgres:14.1-alpine
+        command:
+        - "/bin/sh"
+        - "-c"
+        - |
+          # Wait for YugabyteDB to be ready
+          until pg_isready -h yb-tservers.go-yuga-dist.svc.cluster.local -p 5433 -U yugabyte; do
+            echo "Waiting for YugabyteDB...";
+            sleep 2;
+          done;
+          # Run the setup script
+          psql -h yb-tservers.go-yuga-dist.svc.cluster.local -p 5433 -U yugabyte -f /setup/setup.sql
+        volumeMounts:
+        - name: setup-script-volume
+          mountPath: /setup
+      restartPolicy: OnFailure
+      volumes:
+      - name: setup-script-volume
+        configMap:
+          name: db-setup-script
+  backoffLimit: 4

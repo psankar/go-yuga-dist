@@ -1,0 +1,59 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-migration
+  namespace: go-yuga-dist
+spec:
+  template:
+    spec:
+      serviceAccountName: go-yuga-dist-sa
+      initContainers:
+      - name: wait-for-db-setup
+        image: bitnami/kubectl:latest
+        command:
+        - "/bin/sh"
+        - "-c"
+        - |
+          echo "Waiting for db-setup job to complete..."
+          while true; do
+            if kubectl get job db-setup -n go-yuga-dist -o jsonpath='{.status.conditions[?(@.type=="Complete")].status}' | grep -q "True"; then
+              echo "db-setup job completed successfully."
+              exit 0
+            fi
+            if kubectl get job db-setup -n go-yuga-dist -o jsonpath='{.status.conditions[?(@.type=="Failed")].status}' | grep -q "True"; then
+              echo "db-setup job failed."
+              exit 1
+            fi
+            echo "db-setup not finished, sleeping..."
+            sleep 2
+          done
+      containers:
+      - name: migration
+        image: go-yuga-dist-migration:latest
+        env:
+        - name: PGPASSWORD
+          # This must be the superuser password (yugabyte) so the job can create DB/tablespaces.
+          # Ensure your secret 'yb-credentials' contains the yugabyte password under the key 'yugabyte_password'.
+          valueFrom:
+            secretKeyRef:
+              name: yb-credentials
+              key: yugabyte_password
+        - name: PGUSER
+          value: "yugabyte"
+        - name: PGDATABASE
+          value: "go_yuga_dist"
+        command:
+        - "/bin/sh"
+        - "-c"
+        - |
+          # Wait until YugabyteDB is accepting connections as the yugabyte superuser
+          until pg_isready -h yb-tservers.go-yuga-dist.svc.cluster.local -p 5433 -U $PGUSER; do
+            echo "Waiting for YugabyteDB to be ready..."
+            sleep 2
+          done
+
+          # Run the migration SQL and fail the job on first error
+          psql -h yb-tservers.go-yuga-dist.svc.cluster.local -p 5433 -U $PGUSER -d $PGDATABASE -f /migrations/001_initial_schema.up.sql -v ON_ERROR_STOP=1
+        imagePullPolicy: IfNotPresent
+      restartPolicy: OnFailure
+  backoffLimit: 4

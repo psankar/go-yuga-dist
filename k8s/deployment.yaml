@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: go-yuga-dist
+  namespace: go-yuga-dist
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: go-yuga-dist
+  template:
+    metadata:
+      labels:
+        app: go-yuga-dist
+    spec:
+      serviceAccountName: go-yuga-dist-sa
+      containers:
+      - name: go-yuga-dist
+        image: go-yuga-dist:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: yb-credentials
+              key: DATABASE_URL
+      initContainers:
+      - name: wait-for-migration
+        image: bitnami/kubectl:latest
+        command:
+        - "/bin/sh"
+        - "-c"
+        - |
+          echo "Waiting for db-migration job to complete..."
+          while true; do
+            if kubectl get job db-migration -n go-yuga-dist -o jsonpath='{.status.conditions[?(@.type=="Complete")].status}' | grep -q "True"; then
+              echo "Migration job completed successfully."
+              exit 0
+            fi
+            if kubectl get job db-migration -n go-yuga-dist -o jsonpath='{.status.conditions[?(@.type=="Failed")].status}' | grep -q "True"; then
+              echo "Migration job failed."
+              exit 1
+            fi
+            echo "Migration not finished, sleeping..."
+            sleep 2
+          done
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: go-yuga-dist
+  namespace: go-yuga-dist
+spec:
+  selector:
+    app: go-yuga-dist
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 8080
