@@ -1,7 +1,7 @@
 FROM postgres:14.1-alpine
 
 # Copy the migration SQL into the image so the job can run it directly.
-COPY migrations/001_initial_schema.up.sql /migrations/001_initial_schema.up.sql
+COPY 001_initial_schema.up.sql /migrations/001_initial_schema.up.sql
 
 WORKDIR /migrations
 
